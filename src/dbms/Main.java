@@ -20,22 +20,12 @@ public class Main {
 
     public static void main(String[] args) {
         try {
-            // 메타데이터 관리자 초기화
             metadataManager = new MetadataManager(JDBC_URL, DB_USERNAME, DB_PASSWORD);
-
-            // 디스크 파일 관리자 초기화
             diskFileManager = new DiskFileManager(metadataManager);
-
-            // 레코드 관리자 초기화
             recordManager = new RecordManager(diskFileManager, metadataManager);
-
-            // 쿼리 관리자 초기화
             queryManager = new QueryManager(recordManager, metadataManager);
 
-            // 사용자 인터페이스 시작
             startUserInterface();
-
-            // 리소스 정리
             metadataManager.close();
 
         } catch (SQLException e) {
@@ -43,19 +33,16 @@ public class Main {
         }
     }
 
-    /**
-     * 사용자 인터페이스 메서드
-     */
     private static void startUserInterface() {
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
             System.out.println("\n======= 데이터베이스 시스템 =======");
-            System.out.println("1. 파일 생성");
-            System.out.println("2. 레코드 삽입 (일괄)");
-            System.out.println("3. 필드 검색");
-            System.out.println("4. 레코드 검색 (범위)");
             System.out.println("0. 종료");
+            System.out.println("1. 파일 생성");
+            System.out.println("2. 레코드 삽입 (bulk load)");
+            System.out.println("3. 필드 검색");
+            System.out.println("4. 레코드 검색 (search key 범위 지정)");
             System.out.print("선택하세요: ");
 
             String choice = scanner.nextLine();
@@ -82,9 +69,6 @@ public class Main {
         }
     }
 
-    /**
-     * 파일 생성 기능
-     */
     private static void createFile(Scanner scanner) {
         try {
             System.out.println("\n=== 파일 생성 ===");
@@ -100,13 +84,13 @@ public class Main {
             List<Integer> fieldLengths = new ArrayList<>();
 
             for (int i = 0; i < fieldCount; i++) {
-                System.out.println("필드 #" + (i + 1) + " 정보 입력");
+                System.out.println((i + 1) + "번째 필드 정보 입력");
 
                 System.out.print("필드 이름: ");
                 String fieldName = scanner.nextLine();
                 fieldNames.add(fieldName);
 
-                // 현재는 CHAR 타입만 지원
+                // 고정길이 문자열 타입만 사용
                 fieldTypes.add(Constants.CHAR_TYPE);
 
                 System.out.print("필드 길이 (문자 수): ");
@@ -114,10 +98,10 @@ public class Main {
                 fieldLengths.add(fieldLength);
             }
 
-            // 순차 파일 생성
+            // 순차 파일 생성 + 헤더블록 초기화
             diskFileManager.createSequentialFile(fileName, fieldNames, fieldTypes, fieldLengths);
 
-            // MySQL 테이블 생성 (메타데이터 저장용)
+            // MySQL 테이블 생성
             metadataManager.createTable(fileName, fieldNames, fieldLengths);
 
             System.out.println("파일이 성공적으로 생성되었습니다.");

@@ -19,7 +19,7 @@ public class MetadataManager {
     }
 
     public void createTable(String fileName, List<String> fieldNames, List<Integer> fieldLengths) throws SQLException {
-        // 기존 테이블 삭제
+        // 파일명이 겹치면 기존 테이블 삭제
         String dropTableSQL = "DROP TABLE IF EXISTS " + fileName;
         try (Statement stmt = connection.createStatement()) {
             stmt.executeUpdate(dropTableSQL);
