@@ -1,12 +1,10 @@
 package dbms.util;
 
 public class Constants {
-    public static final int BLOCK_SIZE = 32;
+    public static final int BLOCK_SIZE = 64;
 
-    public static final int POINTER_SIZE = 4; // byte
+    public static final int POINTER_SIZE = 6; // byte
     public static final int NULL_BITMAP_SIZE = 1; // byte
-
-    public static final String METADATA_TABLE = "metadata";
 
     // 경로 설정
     public static final String DATA_DIRECTORY = "src/data/";

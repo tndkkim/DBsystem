@@ -6,8 +6,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class DiskFileManager {
     private MetadataManager metadataManager;
@@ -24,15 +23,11 @@ public class DiskFileManager {
         }
     }
 
-    /**
-     * 순차 파일 생성
-     */
     public void createSequentialFile(String fileName, List<String> fieldNames,
                                      List<String> fieldTypes, List<Integer> fieldLengths) throws IOException, SQLException {
-        // 파일 경로
+
         String filePath = Constants.DATA_DIRECTORY + fileName;
 
-        // 파일 생성 및 초기화
         try (RandomAccessFile file = new RandomAccessFile(filePath, "rw")) {
             file.setLength(0); // 파일 초기화
 
@@ -44,15 +39,13 @@ public class DiskFileManager {
             file.write(headerBlock.getData());
         }
 
-        // 위치 초기화
+        // 첫번째 레코드 저장 위치
         nextAvailablePosition = Constants.BLOCK_SIZE;
 
         System.out.println("순차 파일 생성 완료: " + fileName);
     }
 
-    /**
-     * 블록 읽기
-     */
+    //블록 읽기
     public Block readBlock(String fileName, int blockNumber) throws IOException {
         String filePath = Constants.DATA_DIRECTORY + fileName;
 
@@ -93,129 +86,158 @@ public class DiskFileManager {
         }
     }
 
-    /**
-     * 첫 레코드 포인터 가져오기
-     */
+    // 첫 레코드 포인터 값
     public int getFirstRecordPointer(String fileName) throws IOException {
-        Block headerBlock = readBlock(fileName, 0);
-        return headerBlock.getFirstRecordPointer();
+        Block headerBlock = readBlock(fileName, 0); //첫번째 블록 == 0
+        return headerBlock.getFirstRecordPointer(); //
     }
 
     /**
-     * 첫 레코드 포인터 설정
-     */
-    public void setFirstRecordPointer(String fileName, int pointer) throws IOException {
-        Block headerBlock = readBlock(fileName, 0);
-        headerBlock.setFirstRecordPointer(pointer);
-        writeBlock(fileName, 0, headerBlock);
-    }
-
-    /**
-     * 블록에서 레코드 읽기
+     * 블록에서 레코드 읽기 - 블록 경계를 넘는 레코드도 처리할 수 있도록 수정
+     * 포인터 유효성 검사 강화
      */
     public Record readRecord(String fileName, int pointer) throws IOException, SQLException {
         if (pointer < 0) {
+            System.out.println("유효하지 않은 포인터 (음수): " + pointer);
             return null; // 포인터가 없음
         }
 
-        // 블록 번호와 블록 내 오프셋 계산
-        int blockNumber = pointer / Constants.BLOCK_SIZE;
-        int blockOffset = pointer % Constants.BLOCK_SIZE;
+        String filePath = Constants.DATA_DIRECTORY + fileName;
+        File file = new File(filePath);
 
-        // 블록 읽기
-        Block block = readBlock(fileName, blockNumber);
-
-        // 메타데이터 가져오기
-        List<String> fieldNames = metadataManager.getFieldNames(fileName);
-        List<Integer> fieldLengths = metadataManager.getFieldLengths(fileName);
-
-        // 레코드 읽기를 위한 바이트 배열 준비
-        byte[] blockData = block.getData();
-
-        // 레코드 크기 추정 (최대 크기로 가정)
-        int maxRecordSize = Constants.NULL_BITMAP_SIZE;
-        for (int length : fieldLengths) {
-            maxRecordSize += length;
-        }
-        maxRecordSize += Constants.POINTER_SIZE;
-
-        // 실제 사용할 데이터 크기 (블록 경계를 넘어가지 않도록)
-        int actualSize = Math.min(maxRecordSize, Constants.BLOCK_SIZE - blockOffset);
-
-        // 블록 데이터에서 레코드 부분 추출
-        byte[] recordData = new byte[actualSize];
-        System.arraycopy(blockData, blockOffset, recordData, 0, actualSize);
-
-        // 레코드 생성
-        Record record = Record.fromBytes(recordData, fieldLengths, fieldNames);
-
-        return record;
-    }
-
-    /**
-     * 레코드 쓰기 (새 레코드 추가)
-     * nextAvailablePosition을 사용하여 새로운 레코드 위치 할당
-     */
-    public int writeRecord(String fileName, Record record, int position) throws IOException {
-        byte[] recordBytes = record.toBytes();
-        int recordSize = recordBytes.length;
-
-        // 다음 사용 가능한 위치 사용 (파일 초기화 시에는 항상 Constants.BLOCK_SIZE부터 시작)
-        int newPosition = nextAvailablePosition;
-
-        // 블록 번호와 블록 내 오프셋 계산
-        int blockNumber = newPosition / Constants.BLOCK_SIZE;
-        int blockOffset = newPosition % Constants.BLOCK_SIZE;
-
-        // 블록이 꽉 찼는지 확인, 꽉 찼다면 다음 블록으로 이동
-        if (blockOffset + recordSize > Constants.BLOCK_SIZE) {
-            blockNumber++;
-            blockOffset = 0;
-            newPosition = blockNumber * Constants.BLOCK_SIZE;
+        if (!file.exists()) {
+            System.out.println("파일이 존재하지 않습니다: " + fileName);
+            return null;
         }
 
-        // 블록 읽기
-        Block block;
-        try {
-            block = readBlock(fileName, blockNumber);
-        } catch (IOException e) {
-            // 블록이 존재하지 않으면 새 블록 생성
-            block = new Block();
+        // 파일 크기 확인
+        long fileSize = file.length();
+        if (pointer >= fileSize) {
+            System.out.println("잘못된 포인터 값: " + pointer + ", 파일 크기: " + fileSize);
+            return null;
         }
 
-        // 블록에 레코드 쓰기
-        System.arraycopy(recordBytes, 0, block.getData(), blockOffset, recordSize);
+        try (RandomAccessFile raf = new RandomAccessFile(filePath, "r")) {
+            // 메타데이터 가져오기
+            List<String> fieldNames = metadataManager.getFieldNames(fileName);
+            List<Integer> fieldLengths = metadataManager.getFieldLengths(fileName);
 
-        // 블록 쓰기
-        writeBlock(fileName, blockNumber, block);
+            // 블록 번호와 블록 내 오프셋 계산
+            int blockNumber = pointer / Constants.BLOCK_SIZE;
+            int blockOffset = pointer % Constants.BLOCK_SIZE;
 
-        // 다음 사용 가능한 위치 업데이트
-        nextAvailablePosition = newPosition + recordSize;
+            // 먼저 null bitmap 읽기 (첫 바이트)
+            raf.seek(pointer);
+            byte nullBitmap = raf.readByte();
 
-        // 레코드의 새 위치 반환
-        return newPosition;
+            // null이 아닌 필드 개수 계산
+            int nonNullFieldCount = 0;
+            for (int i = 0; i < fieldNames.size(); i++) {
+                // 해당 비트가 1이면 필드는 null
+                boolean isNull = ((nullBitmap >> i) & 1) == 1;
+                if (!isNull) {
+                    nonNullFieldCount++;
+                }
+            }
+
+            // 레코드 총 크기 계산 (null bitmap + 실제 필드 데이터 + 포인터)
+            int recordSize = Constants.NULL_BITMAP_SIZE;
+            for (int i = 0; i < fieldNames.size(); i++) {
+                // 해당 비트가 1이면 필드는 null, 0이면 필드 데이터 존재
+                boolean isNull = ((nullBitmap >> i) & 1) == 1;
+                if (!isNull) {
+                    recordSize += fieldLengths.get(i);
+                }
+            }
+            recordSize += Constants.POINTER_SIZE; // 다음 레코드 포인터
+
+            // 레코드 크기 유효성 검사 (지나치게 큰 경우 오류 가능성)
+            int maxExpectedRecordSize = Constants.NULL_BITMAP_SIZE +
+                    fieldNames.size() * 100 + // 필드당 최대 예상 크기
+                    Constants.POINTER_SIZE;
+
+            if (recordSize <= 0 || recordSize > maxExpectedRecordSize) {
+                System.out.println("계산된 레코드 크기가 비정상적입니다: " + recordSize);
+                return null;
+            }
+
+            // 전체 레코드 데이터를 저장할 바이트 배열
+            byte[] recordData = new byte[recordSize];
+
+            // null bitmap은 이미 읽었으므로 다시 파일 위치를 포인터로 설정
+            raf.seek(pointer);
+
+            try {
+                // 레코드 데이터 읽기 (블록 경계를 고려하여)
+                int bytesRead = 0;
+                int bytesToRead = recordSize;
+
+                // 남은 블록 크기 계산
+                int remainingInBlock = Constants.BLOCK_SIZE - blockOffset;
+
+                if (remainingInBlock >= recordSize) {
+                    // 레코드가 현재 블록 내에 모두 포함됨
+                    raf.readFully(recordData, 0, recordSize);
+                } else {
+                    // 레코드가 블록 경계를 넘어감
+                    System.out.println("레코드가 블록 경계를 넘어감: 포인터=" + pointer +
+                            ", 레코드 크기=" + recordSize +
+                            ", 현재 블록에 남은 공간=" + remainingInBlock);
+
+                    // 현재 블록에서 읽을 수 있는 만큼 읽기
+                    raf.readFully(recordData, 0, remainingInBlock);
+                    bytesRead = remainingInBlock;
+                    bytesToRead -= remainingInBlock;
+
+                    // 다음 블록(들)에서 나머지 부분 읽기
+                    while (bytesToRead > 0) {
+                        // 다음 블록으로 이동
+                        blockNumber++;
+                        int nextBlockPosition = blockNumber * Constants.BLOCK_SIZE;
+
+                        // 파일 크기 벗어나는지 확인
+                        if (nextBlockPosition + bytesToRead > fileSize) {
+                            System.out.println("레코드가 파일 크기를 초과합니다: " +
+                                    (nextBlockPosition + bytesToRead) + " > " + fileSize);
+                            return null;
+                        }
+
+                        raf.seek(nextBlockPosition);
+
+                        // 한 블록에서 읽을 수 있는 최대 바이트 계산
+                        int bytesToReadFromBlock = Math.min(bytesToRead, Constants.BLOCK_SIZE);
+
+                        // 읽기
+                        raf.readFully(recordData, bytesRead, bytesToReadFromBlock);
+
+                        bytesRead += bytesToReadFromBlock;
+                        bytesToRead -= bytesToReadFromBlock;
+                    }
+                }
+
+                // 레코드 생성
+                Record record = Record.fromBytes(recordData, fieldLengths, fieldNames);
+
+                // 다음 포인터 유효성 검사
+                int nextPointer = record.getNextPointer();
+                if (nextPointer > 0 && nextPointer >= fileSize) {
+                    System.out.println("경고: 다음 포인터가 파일 크기를 초과합니다: " + nextPointer + " >= " + fileSize);
+                    record.setNextPointer(-1); // 안전하게 마지막 레코드로 설정
+                }
+
+                return record;
+            } catch (Exception e) {
+                System.out.println("레코드 읽기 중 예외 발생: " + e.getMessage());
+                e.printStackTrace();
+                return null;
+            }
+        } catch (Exception e) {
+            System.out.println("파일 열기 중 예외 발생: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
     }
 
-    /**
-     * 기존 레코드 업데이트
-     */
-    public void updateRecord(String fileName, Record record, int position) throws IOException {
-        byte[] recordBytes = record.toBytes();
-        int recordSize = recordBytes.length;
-
-        // 블록 번호와 블록 내 오프셋 계산
-        int blockNumber = position / Constants.BLOCK_SIZE;
-        int blockOffset = position % Constants.BLOCK_SIZE;
-
-        // 블록 읽기
-        Block block = readBlock(fileName, blockNumber);
-
-        // 블록에 레코드 쓰기
-        System.arraycopy(recordBytes, 0, block.getData(), blockOffset, recordSize);
-
-        // 블록 쓰기
-        writeBlock(fileName, blockNumber, block);
-    }
 
     /**
      * 파일 크기 (블록 수) 가져오기
@@ -228,32 +250,27 @@ public class DiskFileManager {
             return 0;
         }
 
-        return (int) (file.length() / Constants.BLOCK_SIZE);
+        return (int) Math.ceil(file.length() / (double)Constants.BLOCK_SIZE);
+    }
+    private Map<String, Integer> nextAvailablePositions = new HashMap<>();
+
+    public void updateNextAvailablePosition(String fileName, int newPosition) {
+        nextAvailablePositions.put(fileName, newPosition);
+    }
+
+    public int getNextAvailablePosition(String fileName) {
+        return nextAvailablePositions.getOrDefault(fileName, Constants.BLOCK_SIZE);
     }
 
     /**
-     * 파일이 디스크에 존재하는지 확인
+     * 파일 초기화 (새 레코드 삽입을 위한 헬퍼 메소드)
      */
-    public boolean fileExistsOnDisk(String fileName) {
-        String filePath = Constants.DATA_DIRECTORY + fileName;
-        File file = new File(filePath);
-        return file.exists();
+    public void resetFile(String fileName) throws IOException {
+        // 헤더 블록 초기화
+        Block headerBlock = new Block();
+        headerBlock.initializeHeaderBlock();
+        writeBlock(fileName, 0, headerBlock);
     }
-
-    /**
-     * 다음 가용 위치 재설정
-     */
-    public void resetNextAvailablePosition() {
-        nextAvailablePosition = Constants.BLOCK_SIZE;
-    }
-
-    /**
-     * 현재 다음 사용 가능한 위치 가져오기
-     */
-    public int getNextAvailablePosition() {
-        return nextAvailablePosition;
-    }
-
     /**
      * 파일 통계 정보 가져오기
      */
@@ -279,15 +296,16 @@ public class DiskFileManager {
         int totalRecordSize = 0;
         int currentPointer = firstRecordPointer;
 
-        // 레코드 포인터 추적 (순환 감지용)
-        boolean[] visitedPointers = new boolean[10000];
+        // 레코드 포인터 추적 (순환 감지용) - 배열 대신 Set 사용
+        Set<Integer> visitedPointers = new HashSet<>();
 
         while (currentPointer >= 0) {
             // 순환 감지
-            if (visitedPointers[currentPointer]) {
+            if (visitedPointers.contains(currentPointer)) {
+                System.out.println("순환 감지: 이미 방문한 포인터 " + currentPointer);
                 break;
             }
-            visitedPointers[currentPointer] = true;
+            visitedPointers.add(currentPointer);
 
             try {
                 // 레코드 읽기
@@ -298,19 +316,14 @@ public class DiskFileManager {
 
                 recordCount++;
 
-                // 다음 레코드 위치를 기준으로 현재 레코드 크기 추정
-                int nextPointer = record.getNextPointer();
-                if (nextPointer > currentPointer) {
-                    totalRecordSize += (nextPointer - currentPointer);
-                } else {
-                    // 마지막 레코드거나 다음 포인터가 이전 블록을 가리키는 경우
-                    // 레코드 직접 계산
-                    totalRecordSize += record.calculateRecordSize();
-                }
+                // 레코드 크기 직접 계산
+                int recordSize = record.calculateRecordSize();
+                totalRecordSize += recordSize;
 
                 // 다음 레코드로 이동
-                currentPointer = nextPointer;
+                currentPointer = record.getNextPointer();
             } catch (Exception e) {
+                System.err.println("통계 계산 중 오류: " + e.getMessage());
                 break;
             }
         }
@@ -318,11 +331,82 @@ public class DiskFileManager {
         // 평균 레코드 크기
         double avgRecordSize = recordCount > 0 ? (double) totalRecordSize / recordCount : 0;
 
-        // blocking factor
+        // blocking factor - 데이터 블록 당 평균 레코드 수
         double blockingFactor = avgRecordSize > 0 ? Constants.BLOCK_SIZE / avgRecordSize : 0;
 
         return new FileStats(fileSize, blockCount, recordCount, avgRecordSize, blockingFactor);
     }
+
+//
+//    /**
+//     * 파일 통계 정보 가져오기
+//     */
+//    public FileStats getFileStats(String fileName) throws IOException {
+//        String filePath = Constants.DATA_DIRECTORY + fileName;
+//        File file = new File(filePath);
+//
+//        if (!file.exists()) {
+//            throw new IOException("파일이 존재하지 않습니다: " + fileName);
+//        }
+//
+//        // 전체 파일 크기 (바이트)
+//        long fileSize = file.length();
+//
+//        // 블록 개수
+//        int blockCount = (int) (fileSize / Constants.BLOCK_SIZE);
+//
+//        // 첫 레코드 포인터
+//        int firstRecordPointer = getFirstRecordPointer(fileName);
+//
+//        // 레코드 개수와 평균 크기 계산
+//        int recordCount = 0;
+//        int totalRecordSize = 0;
+//        int currentPointer = firstRecordPointer;
+//
+//        // 레코드 포인터 추적 (순환 감지용)
+//        boolean[] visitedPointers = new boolean[10000];
+//
+//        while (currentPointer >= 0) {
+//            // 순환 감지
+//            if (visitedPointers[currentPointer]) {
+//                break;
+//            }
+//            visitedPointers[currentPointer] = true;
+//
+//            try {
+//                // 레코드 읽기
+//                Record record = readRecord(fileName, currentPointer);
+//                if (record == null) {
+//                    break;
+//                }
+//
+//                recordCount++;
+//
+//                // 다음 레코드 위치를 기준으로 현재 레코드 크기 추정
+//                int nextPointer = record.getNextPointer();
+//                if (nextPointer > currentPointer) {
+//                    totalRecordSize += (nextPointer - currentPointer);
+//                } else {
+//                    // 마지막 레코드거나 다음 포인터가 이전 블록을 가리키는 경우
+//                    // 레코드 직접 계산
+//                    totalRecordSize += record.calculateRecordSize();
+//                }
+//
+//                // 다음 레코드로 이동
+//                currentPointer = nextPointer;
+//            } catch (Exception e) {
+//                break;
+//            }
+//        }
+//
+//        // 평균 레코드 크기
+//        double avgRecordSize = recordCount > 0 ? (double) totalRecordSize / recordCount : 0;
+//
+//        // blocking factor
+//        double blockingFactor = avgRecordSize > 0 ? Constants.BLOCK_SIZE / avgRecordSize : 0;
+//
+//        return new FileStats(fileSize, blockCount, recordCount, avgRecordSize, blockingFactor);
+//    }
 
     /**
      * 파일 통계 정보를 담는 내부 클래스

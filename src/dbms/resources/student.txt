@@ -6,7 +6,7 @@ student
 2101;BIZ;null
 2105;null;25
 2103;ART;21
-2110;LAW;null
+2107;LAW;null
 2108;null;19
 2109;MED;23
-2107;null;null
+2110;null;null
