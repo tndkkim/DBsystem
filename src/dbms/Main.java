@@ -1,6 +1,7 @@
 package dbms;
 
 import dbms.util.Constants;
+import dbms.util.RecordPointer;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -136,11 +137,21 @@ public class Main {
             // 레코드 삽입
             recordManager.bulkInsertRecords(fileName, dataFilePath);
 
+            try {
+                // 첫 레코드 포인터 가져오기
+                int firstRecordOffset = diskFileManager.getFirstRecordPointer(fileName);
+                if (firstRecordOffset >= 0) {
+                    RecordPointer firstRecordPointer = diskFileManager.offsetToPointer(firstRecordOffset);
+                    Record firstRecord = diskFileManager.readRecord(fileName, firstRecordPointer);
+                }
+            } catch (Exception e) {
+                System.err.println("레코드 바이트 정보 출력 중 오류: " + e.getMessage());
+            }
+
         } catch (IOException | SQLException e) {
             System.err.println("레코드 삽입 중 오류 발생: " + e.getMessage());
         }
     }
-
     /**
      * 필드 검색 기능
      */
@@ -175,9 +186,6 @@ public class Main {
         }
     }
 
-    /**
-     * 레코드 검색 기능
-     */
     private static void searchRecords(Scanner scanner) {
         System.out.println("\n=== 레코드 검색 (범위) ===");
 
@@ -185,13 +193,11 @@ public class Main {
         String fileName = scanner.nextLine();
 
         try {
-            // 파일 존재 확인
             if (!metadataManager.fileExists(fileName)) {
                 System.out.println("존재하지 않는 파일입니다.");
                 return;
             }
 
-            // 첫 번째 필드가 검색 키
             String searchKeyField = metadataManager.getFieldNames(fileName).get(0);
             System.out.println("검색 키 필드: " + searchKeyField);
 
@@ -201,7 +207,6 @@ public class Main {
             System.out.print("최대값 입력: ");
             String maxKey = scanner.nextLine();
 
-            // 레코드 검색 실행
             queryManager.processRecordSearch(fileName, minKey, maxKey);
 
         } catch (SQLException e) {

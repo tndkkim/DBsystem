@@ -15,17 +15,14 @@ public class QueryManager {
 
     public void processFieldSearch(String fileName, String fieldName) {
         try {
-            // 필드 인덱스 확인
             int fieldIndex = metadataManager.getFieldIndex(fileName, fieldName);
             if (fieldIndex == -1) {
                 System.out.println("존재하지 않는 필드입니다: " + fieldName);
                 return;
             }
 
-            // 검색 실행
             List<String> results = recordManager.searchField(fileName, fieldName);
 
-            // 결과 출력
             System.out.println("파일: " + fileName + ", 필드: " + fieldName);
             System.out.println("검색 결과:");
             for (int i = 0; i < results.size(); i++) {
@@ -39,10 +36,8 @@ public class QueryManager {
 
     public void processRecordSearch(String fileName, String minKey, String maxKey) {
         try {
-            // 검색 실행
             List<Record> results = recordManager.searchRecords(fileName, minKey, maxKey);
 
-            // 결과 출력
             System.out.println("파일: " + fileName + ", 검색 범위: " + minKey + " ~ " + maxKey);
             System.out.println("검색 결과:");
             for (int i = 0; i < results.size(); i++) {
